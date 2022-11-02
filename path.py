@@ -24,12 +24,19 @@ def pathfinder(event, context):
   # 2. Find the shortest path
   # 3. Format results for output as a list
   # 4. Calculate shortest path length
-  coord1 = event['coord1']
-  coord2 = event['coord2']
-  coord3 = event['coord3']
-  coord4 = event['coord4']
-  
-  input_coord = np.array([[coord1, coord2], [coord3, coord4]])
+
+  # Collect user current location and destination from S3
+  import csv
+  import boto3
+  s3 = boto3.resource('s3')
+  s3.Bucket('user-input-image').download_file('start_end_coordinates.csv', '/tmp/start_end_coordinates.csv') 
+  CSVData = open('/tmp/start_end_coordinates.csv')
+  coord_arr = np.genfromtxt(CSVData, delimiter=",")
+  coord1 = coord_arr[0,0]
+  coord2 = coord_arr[0,1]
+  coord3 = coord_arr[1,0]
+  coord4 = coord_arr[1,1]
+
   # Pull in graph from .graphml file
   graph_paths = ox.load_graphml(filepath='graph.graphml')
 
@@ -38,9 +45,9 @@ def pathfinder(event, context):
   # It takes in a numpy array and returns the two location GeoDataFrames
   # Include CRS 4326
   current_coord = gpd.GeoDataFrame(columns=['geometry'], crs=4326, geometry='geometry')
-  current_coord.at[0, 'geometry'] = Point(input_coord[0, 1], input_coord[0, 0])
+  current_coord.at[0, 'geometry'] = Point(coord2, coord1)
   destination_coord = gpd.GeoDataFrame(columns=['geometry'], crs=4326, geometry='geometry')
-  destination_coord.at[0, 'geometry'] = Point(input_coord[1, 1], input_coord[1, 0])
+  destination_coord.at[0, 'geometry'] = Point(coord4, coord3)
 
   # 2. Find the shortest path
   # Take array of dots and project them
@@ -101,10 +108,10 @@ def pathfinder(event, context):
 
   # Convert locations to radians
   # starting and ending locations
-  current_lat = input_coord[0, 0] * (pi / 180)
-  current_lon = input_coord[0, 1] * (pi / 180)
-  destination_lat = input_coord[1, 0] * (pi / 180)
-  destination_lon = input_coord[1, 1] * (pi / 180)
+  current_lat = coord1 * (pi / 180)
+  current_lon = coord2 * (pi / 180)
+  destination_lat = coord3 * (pi / 180)
+  destination_lon = coord4 * (pi / 180)
   # first node on the graph path
   lat1 = path_arr[0, 0] * (pi / 180)
   lon1 = path_arr[0, 1] * (pi / 180)
@@ -132,15 +139,15 @@ def pathfinder(event, context):
       (destination_lon - lon1) / 2) ** 2)))
   #print("The shortest path has length: ", total_dist_mi, "miles")
 
-  import csv
+  import boto3
   temp_csv_file = csv.writer(open("/tmp/path_coordinates.csv", "w+"))
-  # writing the column names
-  temp_csv_file.writerow([round(total_dist_mi,2)])
-  # writing rows in to the CSV file
-  for coord in len(path_arr):
-      temp_csv_file.writerow([path_arr[coord, 0], path_arr[coord, 1]])
 
-  BUCKET_NAME = 'code-output-bucket'
+  len_arr = np.array([[round(total_dist_mi,2),0]])
+  path_arr = np.concatenate([len_arr, path_arr])
+  np.savetxt('/tmp/path_coordinates.csv', path_arr, delimiter=",")
+  np.savetxt('/tmp/path_coordinates.csv', path_arr, fmt="%f", delimiter=",")
+
+  BUCKET_NAME = 'user-input-image'
   client = boto3.client('s3')
   client.upload_file('/tmp/path_coordinates.csv', BUCKET_NAME,'path_coordinates.csv')
 
